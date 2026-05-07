@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PQC Explorer</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap');
+
+        :root {
+            --bg-color: #050a15;
+            --surface-color: rgba(16, 25, 45, 0.7);
+            --primary: #00f0ff;
+            --secondary: #7000ff;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --border: rgba(0, 240, 255, 0.2);
+            --glow: 0 0 20px rgba(0, 240, 255, 0.4);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: radial-gradient(circle at top, #0a1128 0%, var(--bg-color) 100%);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Logo Header */
+        .logo-container {
+            margin-top: 3rem;
+            margin-bottom: 2rem;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .logo-image {
+            width: 180px;
+            height: 180px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid var(--primary);
+            box-shadow: 0 0 40px rgba(0, 240, 255, 0.5), inset 0 0 20px rgba(0, 240, 255, 0.5);
+            animation: pulseGlow 3s infinite alternate;
+            background-color: #000;
+        }
+
+        .logo-title {
+            margin-top: 1.5rem;
+            font-size: 2.5rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            background: linear-gradient(90deg, #fff, var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-transform: uppercase;
+        }
+
+        .logo-subtitle {
+            font-size: 1rem;
+            color: var(--primary);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            opacity: 0.8;
+            margin-top: 0.5rem;
+        }
+
+        /* Search Bar */
+        .search-container {
+            width: 100%;
+            max-width: 800px;
+            margin: 2rem 0 4rem 0;
+            position: relative;
+        }
+
+        .search-bar {
+            width: 100%;
+            padding: 1.2rem 2rem;
+            border-radius: 50px;
+            background: rgba(10, 15, 30, 0.8);
+            border: 1px solid var(--border);
+            color: #fff;
+            font-size: 1.1rem;
+            font-family: 'JetBrains Mono', monospace;
+            box-sizing: border-box;
+            outline: none;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .search-bar:focus {
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .search-btn {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--primary);
+            color: #000;
+            border: none;
+            padding: 0.8rem 2rem;
+            border-radius: 40px;
+            font-weight: 600;
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .search-btn:hover {
+            box-shadow: 0 0 15px var(--primary);
+            transform: translateY(-50%) scale(1.05);
+        }
+
+        /* Panels */
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        .panel {
+            background: var(--surface-color);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 20px;
+            padding: 2rem;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            animation: slideUp 0.6s ease forwards;
+        }
+
+        .panel h2 {
+            margin-top: 0;
+            font-weight: 600;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+
+        th {
+            text-align: left;
+            color: var(--text-muted);
+            font-weight: 400;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        td {
+            padding: 1.2rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .hash-link {
+            color: var(--primary);
+            text-decoration: none;
+            transition: color 0.2s;
+            cursor: pointer;
+        }
+
+        .hash-link:hover {
+            color: #fff;
+            text-shadow: 0 0 8px var(--primary);
+        }
+
+        .badge {
+            background: rgba(0, 240, 255, 0.1);
+            color: var(--primary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            border: 1px solid var(--border);
+        }
+
+        /* Animations */
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 30px rgba(0, 240, 255, 0.3), inset 0 0 10px rgba(0, 240, 255, 0.3); }
+            100% { box-shadow: 0 0 60px rgba(0, 240, 255, 0.8), inset 0 0 30px rgba(0, 240, 255, 0.6); }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Details View */
+        #details-view {
+            display: none;
+        }
+        
+        .detail-row {
+            display: flex;
+            margin-bottom: 1rem;
+            border-bottom: 1px dashed rgba(255,255,255,0.1);
+            padding-bottom: 1rem;
+        }
+        
+        .detail-label {
+            width: 150px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        
+        .detail-value {
+            flex: 1;
+            font-family: 'JetBrains Mono', monospace;
+            word-break: break-all;
+            color: #fff;
+        }
+        
+        .back-btn {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--text-muted);
+            padding: 5px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            font-family: 'Outfit';
+            transition: all 0.2s;
+        }
+        
+        .back-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- Center Logo -->
+        <div class="logo-container">
+            <img src="logo.png" alt="PQC Logo" class="logo-image" onerror="this.src='https://via.placeholder.com/180/000000/00f0ff?text=PQC'">
+            <div class="logo-title">Post-Quantum Chain</div>
+            <div class="logo-subtitle">Post-Quantum Blockchain Explorer</div>
+        </div>
+
+        <!-- Search -->
+        <div class="search-container">
+            <input type="text" id="searchInput" class="search-bar" placeholder="Search by Block Height, Block Hash, or TxID...">
+            <button class="search-btn" onclick="performSearch()">Search</button>
+        </div>
+
+        <!-- Main Dash (Blocks & Mempool) -->
+        <div class="grid" id="main-view">
+            <!-- Latest Blocks -->
+            <div class="panel">
+                <h2>Latest Blocks</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Height</th>
+                            <th>Hash</th>
+                            <th>Time</th>
+                            <th>Txs</th>
+                        </tr>
+                    </thead>
+                    <tbody id="blocks-tbody">
+                        <tr><td colspan="4" style="text-align: center;">Loading blocks...</td></tr>
+                    </tbody>
+                </table>
+                <div id="pagination" class="pagination-controls" style="display: flex; justify-content: center; align-items: center; margin-top: 1.5rem; gap: 15px;"></div>
+            </div>
+        </div>
+
+        <!-- Details View (Block or Tx) -->
+        <div class="grid" id="details-view">
+            <div class="panel">
+                <button class="back-btn" onclick="showMain()">&larr; Back to Explorer</button>
+                <h2 id="detail-title">Details</h2>
+                <div id="detail-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://127.0.0.1:8100/api';
+
+        let currentPage = 1;
+        const limitPerPage = 20;
+
+        async function fetchLatestBlocks(page = currentPage) {
+            try {
+                const res = await fetch(`${API_URL}/blocks?page=${page}&limit=${limitPerPage}`);
+                const data = await res.json();
+                
+                // Compatibility for old cache if any
+                const blocks = Array.isArray(data) ? data : data.blocks;
+                const totalBlocks = data.total_blocks || blocks.length;
+                
+                const tbody = document.getElementById('blocks-tbody');
+                tbody.innerHTML = '';
+                
+                if (blocks.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">No blocks found.</td></tr>';
+                }
+                
+                blocks.reverse().forEach(b => {
+                    const tr = document.createElement('tr');
+                    const date = new Date(b.timestamp * 1000).toLocaleString();
+                    const hashShort = b.hash.substring(0, 16) + '...';
+                    
+                    tr.innerHTML = `
+                        <td><span class="badge">${b.index}</span></td>
+                        <td><a class="hash-link" onclick="loadBlock('${b.hash}')">${hashShort}</a></td>
+                        <td>${date}</td>
+                        <td>${b.transactions.length}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+
+                if (!Array.isArray(data)) {
+                    currentPage = data.page;
+                    renderPagination(totalBlocks);
+                }
+            } catch (e) {
+                console.error(e);
+                document.getElementById('blocks-tbody').innerHTML = '<tr><td colspan="4" style="color: #ff3366;">Error connecting to node API. Ensure the node is running.</td></tr>';
+            }
+        }
+
+        function renderPagination(totalBlocks) {
+            const totalPages = Math.ceil(totalBlocks / limitPerPage) || 1;
+            const paginationDiv = document.getElementById('pagination');
+            if(!paginationDiv) return;
+            
+            let html = '';
+            if (currentPage > 1) {
+                html += `<button class="back-btn" style="margin-bottom:0;" onclick="fetchLatestBlocks(${currentPage - 1})">Previous</button>`;
+            }
+            html += `<span style="color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">Page ${currentPage} of ${totalPages}</span>`;
+            if (currentPage < totalPages) {
+                html += `<button class="back-btn" style="margin-bottom:0;" onclick="fetchLatestBlocks(${currentPage + 1})">Next</button>`;
+            }
+            paginationDiv.innerHTML = html;
+        }
+
+        async function performSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if(!query) return;
+            
+            try {
+                // Try as TxID first
+                let res = await fetch(`${API_URL}/tx/${query}`);
+                if (res.ok) {
+                    const tx = await res.json();
+                    renderTx(tx);
+                    return;
+                }
+                
+                // Try as Block Hash or Height
+                res = await fetch(`${API_URL}/block/${query}`);
+                if (res.ok) {
+                    const block = await res.json();
+                    renderBlock(block);
+                    return;
+                }
+                
+                alert("Hash/TxID not found in the network.");
+            } catch (e) {
+                alert("Error connecting to node.");
+            }
+        }
+
+        async function loadBlock(hash) {
+            try {
+                const res = await fetch(`${API_URL}/block/${hash}`);
+                if (res.ok) {
+                    const block = await res.json();
+                    renderBlock(block);
+                }
+            } catch(e) { console.error(e); }
+        }
+        
+        async function loadTx(txid) {
+            try {
+                const res = await fetch(`${API_URL}/tx/${txid}`);
+                if (res.ok) {
+                    const tx = await res.json();
+                    renderTx(tx);
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        function renderBlock(block) {
+            document.getElementById('main-view').style.display = 'none';
+            document.getElementById('details-view').style.display = 'block';
+            document.getElementById('detail-title').innerText = `Block #${block.index}`;
+            
+            const date = new Date(block.timestamp * 1000).toLocaleString();
+            
+            let txsHtml = block.transactions.map(t => `<a class="hash-link" onclick="loadTx('${t.tx_id}')">${t.tx_id.substring(0,20)}...</a>`).join('<br>');
+            
+            document.getElementById('detail-content').innerHTML = `
+                <div class="detail-row"><div class="detail-label">Hash</div><div class="detail-value">${block.hash}</div></div>
+                <div class="detail-row"><div class="detail-label">Previous</div><div class="detail-value">${block.previous_hash}</div></div>
+                <div class="detail-row"><div class="detail-label">Timestamp</div><div class="detail-value">${date}</div></div>
+                <div class="detail-row"><div class="detail-label">Difficulty</div><div class="detail-value">${block.difficulty}</div></div>
+                <div class="detail-row"><div class="detail-label">Merkle Root</div><div class="detail-value">${block.merkle_root}</div></div>
+                <div class="detail-row"><div class="detail-label">Transactions (${block.transactions.length})</div><div class="detail-value">${txsHtml || 'None'}</div></div>
+            `;
+        }
+        
+        function renderTx(tx) {
+            document.getElementById('main-view').style.display = 'none';
+            document.getElementById('details-view').style.display = 'block';
+            document.getElementById('detail-title').innerText = `Transaction`;
+            
+            const date = new Date(tx.timestamp * 1000).toLocaleString();
+            
+            let inputsHtml = tx.inputs.map(i => tx.is_coinbase ? "COINBASE (Block Reward)" : `PrevOut: ${i.tx_id.substring(0,16)}...:${i.out_idx}`).join('<br>');
+            let outputsHtml = tx.outputs.map(o => `${(o.amount / 100000000).toFixed(8)} PQC &rarr; ${o.address.substring(0,16)}...`).join('<br>');
+            
+            document.getElementById('detail-content').innerHTML = `
+                <div class="detail-row"><div class="detail-label">TxID</div><div class="detail-value">${tx.tx_id}</div></div>
+                <div class="detail-row"><div class="detail-label">Type</div><div class="detail-value">${tx.is_coinbase ? '<span class="badge" style="background:#ff9900;color:#fff;">COINBASE</span>' : '<span class="badge">STANDARD</span>'}</div></div>
+                <div class="detail-row"><div class="detail-label">Timestamp</div><div class="detail-value">${date}</div></div>
+                <div class="detail-row"><div class="detail-label">Inputs</div><div class="detail-value">${inputsHtml}</div></div>
+                <div class="detail-row"><div class="detail-label">Outputs</div><div class="detail-value">${outputsHtml}</div></div>
+            `;
+        }
+
+        function showMain() {
+            document.getElementById('main-view').style.display = 'grid';
+            document.getElementById('details-view').style.display = 'none';
+            fetchLatestBlocks();
+        }
+
+        // Init
+        fetchLatestBlocks();
+        setInterval(fetchLatestBlocks, 10000); // refresh every 10s
+    </script>
+</body>
+</html>
