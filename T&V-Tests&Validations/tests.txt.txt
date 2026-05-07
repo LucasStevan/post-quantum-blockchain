@@ -1,0 +1,38 @@
+suasenhasegura1@
+
+PORT=8000
+
+ 12 WORDS: payment uphold prize tobacco sight metal boil opera nose wet alter unveil toe recall start hub treat enlist spawn bid oven matrix solar naive
+ Address: cfaf6e494e3dd196f3bce86955a54b22e560cf86f0448fe297259563aa87b8c4a283ccf850a68ea67f0e15bc0ca3c66bdb31cee23dd20808226390b5dfdd88df
+
+
+MINE ->:
+
+PQC | Height: 0 | Confirmed: 0.00000000 PQC | Pending: 0.00000000 PQC
+1. Send tokens
+2. Mine block
+3. Network status
+4. Explorer (Blocks/Txs)
+5. Exit
+> 2
+Mining block with 0 txs (Reward: 36.00000000 PQC | Fees: 0.00000000 PQC)...
+2026-05-07 04:18:09,746 - INFO - Block 1 mined in 0.00 seconds
+Block 1 added. Hash: 04a4fdcb7682db13d6b62e8d5c2f659c4f446b3b7966fe87e55c1ee243d0b29c75f4c8054f8875b92d8ecf3c7ee9cc7964e9a73b1fbea924d7ee6bc26b9ac6e6
+Coinbase TxID (Miner Reward): 03e8a9c29b921e01318d0ba6a1196747374062e0c1d2ef4bd6e3e25f1127addfa9c13b879d7ddd934202d2dfef9072ecd8ba22c5a1dd11c45b88ed55b18bed21
+
+
+
+PORT=8001
+
+ 12 WORDS: middle kidney absent actor ranch cliff exhibit wheel glance hazard pave tent manage habit still achieve struggle stamp virtual cheap intact hobby anchor reopen
+
+ Address: 1ee89e244c756263a809e8fd553194b239e6fff67fa930970f0d38f4ef7c0549c67d9016b29cd46d4cc81117c2a329e0289faf884afccfab34ba2e845b0b14ad
+
+
+TRANSACTION:
+
+> 1
+Receiver address: 1ee89e244c756263a809e8fd553194b239e6fff67fa930970f0d38f4ef7c0549c67d9016b29cd46d4cc81117c2a329e0289faf884afccfab34ba2e845b0b14ad
+Amount (PQC): 19
+Transaction 2c73c3708629f6b685bcb71ecea66487dc84977ecf30abc7ce64959ce1fb4f342cc42b08d3c1416c8374936072402de7d41be0f552b91b469070022d3e895e9a broadcasted (Fee: 0.0001 PQC)!
+
