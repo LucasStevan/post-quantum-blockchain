@@ -26,102 +26,82 @@ Relatórios técnicos:
 
 ## Modelo De Ligações Da Rede
 
-Visão em plaintext, no estilo de um workflow visual, para comparar o desenho anterior com o desenho atual.
+Os diagramas abaixo usam Mermaid para renderizar caixas e ligações no GitHub, em vez de blocos ASCII difíceis de ler.
 
 ### Antes Das Correções
 
-```plaintext
-[Wallet / Seed]
-      |
-      v
-[dilithium-py Dilithium5]
-      |
-      v
-[Assinatura ML educacional]
-      |
-      +-----------------------------+
-      |                             |
-      v                             v
-[Ed25519]                    [tx_id sem chain_id]
-      |                             |
-      +-------------+---------------+
-                    |
-                    v
-        [Assinatura hibrida AND]
-                    |
-                    v
-        [Transaction JSON + zstd]
-                    |
-                    v
-        [P2P WebSocket / TLS]
-                    |
-        +-----------+-----------+
-        |                       |
-        v                       v
-[Rede A / Mainnet]      [Rede B / Fork/Testnet]
-        |                       |
-        +-----------+-----------+
-                    |
-                    v
-       [Risco: replay cross-network]
+```mermaid
+flowchart LR
+    wallet["Wallet / Seed"]
+    dilithium["dilithium-py<br/>Dilithium5 educacional"]
+    mlSig["Assinatura ML<br/>sem garantia constant-time"]
+    ed["Ed25519"]
+    txid["tx_id sem chain_id"]
+    hybrid["Assinatura hibrida<br/>AND verify"]
+    transport["Transaction JSON + zstd"]
+    p2p["P2P WebSocket / TLS"]
+    netA["Rede A<br/>mainnet"]
+    netB["Rede B<br/>fork / testnet"]
+    replay["Replay cross-network<br/>assinatura reaproveitavel"]
+    legacyWallet["wallets.json"]
+    jsonKeys["hex strings<br/>JSON + zstd + AEAD"]
 
-[wallets.json]
-      |
-      v
-[hex strings + JSON + zstd + AEAD]
+    wallet --> dilithium --> mlSig --> hybrid
+    wallet --> ed --> hybrid
+    txid --> hybrid --> transport --> p2p
+    p2p --> netA
+    p2p --> netB
+    netA --> replay
+    netB --> replay
+    legacyWallet --> jsonKeys
+
+    classDef risk fill:#4a1822,stroke:#ff6b7a,color:#ffffff,stroke-width:2px;
+    classDef weak fill:#3b2f1e,stroke:#f6c85f,color:#ffffff,stroke-width:2px;
+    classDef neutral fill:#1f2937,stroke:#64748b,color:#ffffff;
+    class replay risk;
+    class dilithium,mlSig,txid,jsonKeys weak;
+    class wallet,ed,hybrid,transport,p2p,netA,netB,legacyWallet neutral;
 ```
 
 ### Depois Das Correções
 
-```plaintext
-[Wallet / Seed]
-      |
-      v
-[MLDSA87 facade]
-      |
-      v
-[liboqs ML-DSA-87]
-      |
-      +-----------------------------+
-      |                             |
-      v                             v
-[Ed25519]        [TX_HASH_DOMAIN + PQC_CHAIN_ID + campos da tx]
-      |                             |
-      +-------------+---------------+
-                    |
-                    v
-        [tx_id v2 com domain separation]
-                    |
-                    v
-        [Assinatura hibrida AND]
-                    |
-                    v
-        [Validacao de tamanhos + verify ML-DSA + verify Ed25519]
-                    |
-                    v
-        [Transaction JSON + zstd - transporte legado compativel]
-                    |
-                    v
-        [P2P WebSocket / TLS 1.3]
-                    |
-                    v
-        [Handshake assina chain_id]
-                    |
-        +-----------+-----------+
-        |                       |
-        v                       v
-[Rede A / Chain ID A]  [Rede B / Chain ID B]
-        |                       |
-        v                       v
-[Aceita tx A]          [Rejeita replay de tx A]
+```mermaid
+flowchart LR
+    wallet["Wallet / Seed"]
+    facade["MLDSA87 facade"]
+    oqs["liboqs<br/>ML-DSA-87"]
+    ed["Ed25519"]
+    domain["TX_HASH_DOMAIN<br/>PQC_CHAIN_ID<br/>campos canonicos"]
+    txid["tx_id v2<br/>domain-separated"]
+    hybrid["Assinatura hibrida<br/>AND verify"]
+    checks["Validacao de tamanhos<br/>ML-DSA verify<br/>Ed25519 verify"]
+    transport["JSON + zstd<br/>transporte legado compativel"]
+    p2p["P2P WebSocket<br/>TLS 1.3"]
+    handshake["Handshake assina<br/>chain_id"]
+    netA["Rede A<br/>Chain ID A"]
+    netB["Rede B<br/>Chain ID B"]
+    accept["Aceita tx A"]
+    reject["Rejeita replay<br/>de tx A"]
+    binWallet["wallets.bin"]
+    envelope["Envelope binario<br/>versionado + AEAD<br/>sem compressao"]
+    legacy["wallets.json legado<br/>lido e migrado<br/>rollback seguro"]
 
-[wallets.bin]
-      |
-      v
-[Envelope binario versionado + AEAD sem compressao]
-      |
-      v
-[wallets.json legado ainda legivel e migrado com rollback seguro]
+    wallet --> facade --> oqs --> hybrid
+    wallet --> ed --> hybrid
+    domain --> txid --> hybrid --> checks --> transport --> p2p --> handshake
+    handshake --> netA --> accept
+    handshake --> netB --> reject
+    wallet --> binWallet --> envelope
+    legacy -. migracao compativel .-> binWallet
+
+    classDef secure fill:#123524,stroke:#22c55e,color:#ffffff,stroke-width:2px;
+    classDef protocol fill:#1e3a5f,stroke:#60a5fa,color:#ffffff,stroke-width:2px;
+    classDef reject fill:#3f1d1d,stroke:#f87171,color:#ffffff,stroke-width:2px;
+    classDef store fill:#2b2440,stroke:#a78bfa,color:#ffffff,stroke-width:2px;
+    class wallet,facade,oqs,ed,domain,txid,hybrid,checks,accept secure;
+    class transport,p2p,handshake,netA,netB protocol;
+    class reject reject;
+    class binWallet,envelope,legacy store;
 ```
 
 ## Por Que Não Protobuf Agora?
