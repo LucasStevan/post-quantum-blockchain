@@ -21,9 +21,9 @@
 
 ## <span id="-sobre-o-projeto" style="color:#2E86C1;">Sobre o Projeto</span>
 
-O **PQC-CHAIN** é uma implementação de blockchain pós-quântica hiper-segura baseada no `Dilithium5`, o nível máximo de segurança recomendado pelo NIST (National Institute of Standards and Technology). 
+O **PQC-CHAIN** é uma implementação de blockchain pós-quântica hiper-segura baseada em assinaturas híbridas `ML-DSA-87` (FIPS 204, via liboqs) + `Ed25519` com verificação AND.
 
-Este projeto foi desenhado para ser executado sem a necessidade de compilação complexa de bibliotecas em C, utilizando Python puro e focando em criptografia moderna. Toda a segurança, certificados TLS e chaves são gerados automaticamente!
+Este projeto foi desenhado para rodar em Dev Container: o ambiente compila e instala liboqs de forma reproduzível, evitando a implementação educacional `dilithium-py`. Toda a segurança, certificados TLS e chaves são gerados automaticamente!
 
 ---
 
@@ -39,8 +39,8 @@ A agressividade da segurança implementada no PQC-CHAIN inclui:
   </tr>
   <tr>
     <td style="padding: 10px; border: 1px solid #ddd;"><b>Assinaturas</b></td>
-    <td style="padding: 10px; border: 1px solid #ddd;"><code>Dilithium5</code></td>
-    <td style="padding: 10px; border: 1px solid #ddd;">Maior nível de segurança pós-quântico do NIST para assinaturas digitais. Protege transações contra quebras via Algoritmo de Shor.</td>
+    <td style="padding: 10px; border: 1px solid #ddd;"><code>ML-DSA-87</code> + <code>Ed25519</code></td>
+    <td style="padding: 10px; border: 1px solid #ddd;">Combiner híbrido com verificação AND: a transação só é válida se a assinatura pós-quântica e a assinatura clássica verificarem sobre o mesmo <code>tx_id</code>.</td>
   </tr>
   <tr>
     <td style="padding: 10px; border: 1px solid #ddd;"><b>Armazenamento</b></td>
@@ -49,7 +49,7 @@ A agressividade da segurança implementada no PQC-CHAIN inclui:
   </tr>
   <tr>
     <td style="padding: 10px; border: 1px solid #ddd;"><b>Rede P2P</b></td>
-    <td style="padding: 10px; border: 1px solid #ddd;"><code>TLS v1.2+</code></td>
+    <td style="padding: 10px; border: 1px solid #ddd;"><code>TLS v1.3+</code></td>
     <td style="padding: 10px; border: 1px solid #ddd;">Todo o tráfego P2P ocorre encriptado por padrão. Certificados auto-assinados são gerados dinamicamente na inicialização.</td>
   </tr>
   <tr>
@@ -84,7 +84,7 @@ A agressividade da segurança implementada no PQC-CHAIN inclui:
 
 <div style="background-color:#F4F6F6; padding:15px; border-radius:8px; border-left: 5px solid #2ECC71;">
   <h3 style="margin-top: 0;"> Comando (No terminal dentro do Container):</h3>
-  <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px; font-family: 'Courier New', Courier, monospace;"><code>python qnt.py</code></pre>
+  <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px; font-family: 'Courier New', Courier, monospace;"><code>python Quantum.py</code></pre>
   
   <h3> O que acontece na primeira execução?</h3>
   <ul>
@@ -102,7 +102,7 @@ A agressividade da segurança implementada no PQC-CHAIN inclui:
 Para simular uma rede descentralizada completa localmente, você pode instanciar vários nós em portas diferentes.
 
 > ** IMPORTANTE - Isolamento de Diretórios:** 
-> Se rodar múltiplos nós na mesma pasta raiz, eles causarão conflito de banco de dados (bloqueio de arquivo) e usarão a mesma chave/certificados. Para simular múltiplos nós corretamente, **você deve criar pastas separadas para cada nó** (ex: <code>node0/</code>, <code>node1/</code>, <code>node2/</code>), copiar os arquivos Python (ou o repositório) para elas, e rodar o <code>qnt.py</code> separadamente dentro de cada diretório.
+> Se rodar múltiplos nós na mesma pasta raiz, eles causarão conflito de banco de dados (bloqueio de arquivo) e usarão a mesma chave/certificados. Para simular múltiplos nós corretamente, **você deve criar pastas separadas para cada nó** (ex: <code>node0/</code>, <code>node1/</code>, <code>node2/</code>), copiar os arquivos Python (ou o repositório) para elas, e rodar o <code>Quantum.py</code> separadamente dentro de cada diretório.
 
 ### A. Nó Inicial (Semente/Ponto de Entrada) - Porta 8004
 Este será o nó principal ao qual os outros se conectarão para baixar o histórico inicial.
@@ -111,11 +111,11 @@ Este será o nó principal ao qual os outros se conectarão para baixar o histó
   <p><strong>Terminal 0 (Dentro da pasta do Nó 0)</strong></p>
   <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px;"><code># No Windows PowerShell:
 $env:PORT="8004"
-python qnt.py
+python Quantum.py
 
 # No Linux/Mac/DevContainer:
 export PORT=8004
-python qnt.py</code></pre>
+python Quantum.py</code></pre>
 </div>
 
 ### B. Nó Adicional 1 - Porta 8001
@@ -126,12 +126,12 @@ Configurar o nó atual na porta 8001 para se sincronizar automaticamente com o n
   <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px;"><code># No Windows PowerShell:
 $env:INITIAL_NODE="127.0.0.1:8004"
 $env:PORT="8001"
-python qnt.py
+python Quantum.py
 
 # No Linux/Mac/DevContainer:
 export INITIAL_NODE="127.0.0.1:8004"
 export PORT=8001
-python qnt.py</code></pre>
+python Quantum.py</code></pre>
 </div>
 
 ### C. Nó Adicional 2 - Porta 8002
@@ -142,12 +142,12 @@ Da mesma forma, podemos adicionar um terceiro nó.
   <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px;"><code># No Windows PowerShell:
 $env:INITIAL_NODE="127.0.0.1:8004"
 $env:PORT="8002"
-python qnt.py
+python Quantum.py
 
 # No Linux/Mac/DevContainer:
 export INITIAL_NODE="127.0.0.1:8004"
 export PORT=8002
-python qnt.py</code></pre>
+python Quantum.py</code></pre>
 </div>
 
 ---
@@ -173,6 +173,8 @@ Depois de iniciar a rede, você pode interligar os nós mutuamente para formar u
 - **Portas em Uso**: Antes de iniciar, certifique-se de que as portas `8001`, `8002`, `8004` (e `8000` se usada como padrão sem definição de porta) não estejam sendo ocupadas por outras aplicações.
 - **Backups da Chave de DB**: Se perder o arquivo `config.yaml` ou a `db_key`, os dados locais da blockchain (blocos salvos localmente e a carteira) serão permanentemente inacessíveis. A criptografia é **inquebrável**.
 - **Consumo de Memória**: Por design, o Argon2 consome ~1GB de RAM por breves momentos durante a decodificação da chave do banco. Isso garante resistência a ASICs e força bruta em caso de vazamento físico do arquivo do banco.
+- **Replay Protection**: transações v2 incluem `PQC_CHAIN_ID` no `tx_id`. Redes, forks e testnets devem usar identificadores diferentes.
+- **Modelo de Ameaças**: veja `readme-issue.md` para as correções das issues 1-3, comandos de execução e limites de segurança.
 
 ---
 
