@@ -9,6 +9,8 @@ import re
 import functools
 import hashlib
 import struct
+import ctypes as ct
+from threading import Lock
 from typing import List, Dict, Optional, Tuple, Set
 import click
 import ssl
@@ -23,13 +25,14 @@ import datetime
 import yaml
 import zstandard as zstd
 import argon2
-from dilithium_py.dilithium import Dilithium5
+import oqs
 from mnemonic import Mnemonic
 from rocksdict import Rdict, Options
 import websockets
 from websockets.server import serve
 from concurrent.futures import ProcessPoolExecutor
 from aiohttp import web
+from wallet_store import load_wallet_data, save_wallet_data, wallet_store_exists
 
 # Configure logging
 logging.basicConfig(
@@ -47,6 +50,14 @@ async def async_prompt(text: str, **kwargs) -> str:
     return await asyncio.get_event_loop().run_in_executor(None, functools.partial(click.prompt, text, **kwargs))
 
 # Constants
+DEFAULT_CHAIN_ID = "pqc-chain-mainnet-2026-ml-dsa-87-v2"
+CHAIN_ID_ENV = "PQC_CHAIN_ID"
+TX_HASH_DOMAIN = b"PQC-CHAIN:TX:v2"
+DEFAULT_ML_DSA_ALGORITHM = "ML-DSA-87"
+ML_DSA_ALGORITHM_ENV = "PQC_ML_DSA_ALGORITHM"
+ED25519_PUBLIC_KEY_SIZE = 32
+ED25519_SIGNATURE_SIZE = 64
+ADDRESS_RE = re.compile(r"^[0-9a-f]{128}$")
 COIN = 100_000_000
 MAX_SUPPLY = 21_000_000 * COIN
 INITIAL_BLOCK_REWARD = 50 * COIN
@@ -57,8 +68,8 @@ DIFFICULTY_ADJUSTMENT_INTERVAL = 2000
 # Binary difficulty: leading zero bits 
 
 INITIAL_DIFFICULTY = 4  
-GENESIS_HASH = '058f3b64eeb96646386d799bbd7a613c4d02991d8370028c520cee6ec91fadc7ae6937c4bef7e786a97bacb8f5b01a297c2a1d8c70501adb9eea52ced5cfdc11'
-GENESIS_BLOCK_JSON = '{"index": 0, "transactions": [{"tx_id": "e0406de8e2162001f7d421ebdd9dec2ee2b24f217287abc04ee7c68696c5b1dea4c59c306e9b2c4d310cb95aa62f119c85c82ccb3dddfa7262eac885d8d366cb", "inputs": [], "outputs": [{"amount": 5000000000, "address": "634518687b996f091d9467f1017e3e59419a3a447e7f0cfcf6d9ddb9cd105b13f05e646d9c5ebdc009f07837a6a215f19990e2b561ac30f5a1fdc31932188370"}], "is_coinbase": true, "timestamp": 1778127229.4563112}], "previous_hash": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "difficulty": 4, "timestamp": 1778127229.4563112, "nonce": 8, "hash": "058f3b64eeb96646386d799bbd7a613c4d02991d8370028c520cee6ec91fadc7ae6937c4bef7e786a97bacb8f5b01a297c2a1d8c70501adb9eea52ced5cfdc11", "merkle_root": "e0406de8e2162001f7d421ebdd9dec2ee2b24f217287abc04ee7c68696c5b1dea4c59c306e9b2c4d310cb95aa62f119c85c82ccb3dddfa7262eac885d8d366cb"}'
+GENESIS_HASH = '04d0a6dcd5ec2218b8180b9a456158f79abaa4fe731772e8dd3c2ae7fdba4f5ae71a7947f62d6471ab7cf67d76e3c81c5148df231b662424eae3a99d7c433fcb'
+GENESIS_BLOCK_JSON = '{"index":0,"transactions":[{"tx_id":"43e04dcf531e13709658b276550c5eb7276e5f203d884fbadccede8c438f60af827c389c8b2711d5563784fcd2b778e6178df94de46f64116303fa66a8cdb40b","inputs":[],"outputs":[{"amount":5000000000,"address":"634518687b996f091d9467f1017e3e59419a3a447e7f0cfcf6d9ddb9cd105b13f05e646d9c5ebdc009f07837a6a215f19990e2b561ac30f5a1fdc31932188370"}],"is_coinbase":true,"timestamp":1778127229.4563112}],"previous_hash":"00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","difficulty":4,"timestamp":1778127229.4563112,"nonce":45,"hash":"04d0a6dcd5ec2218b8180b9a456158f79abaa4fe731772e8dd3c2ae7fdba4f5ae71a7947f62d6471ab7cf67d76e3c81c5148df231b662424eae3a99d7c433fcb","merkle_root":"43e04dcf531e13709658b276550c5eb7276e5f203d884fbadccede8c438f60af827c389c8b2711d5563784fcd2b778e6178df94de46f64116303fa66a8cdb40b"}'
 CONFIG_FILE = 'config.yaml'
 PEER_CHECK_INTERVAL = 10
 
@@ -75,6 +86,101 @@ MAX_CONNECTIONS_PER_IP = 3
 
 def compute_sha3_512(data: bytes) -> str:
     return hashlib.sha3_512(data).hexdigest()
+
+def get_chain_id() -> str:
+    chain_id = os.getenv(CHAIN_ID_ENV, DEFAULT_CHAIN_ID).strip()
+    if not chain_id:
+        raise ValueError(f"{CHAIN_ID_ENV} must not be empty.")
+    return chain_id
+
+def get_chain_id_bytes() -> bytes:
+    return get_chain_id().encode("utf-8")
+
+def _select_ml_dsa_algorithm() -> str:
+    requested = os.getenv(ML_DSA_ALGORITHM_ENV)
+    candidates = (requested,) if requested else (DEFAULT_ML_DSA_ALGORITHM,)
+    enabled = set(oqs.get_enabled_sig_mechanisms())
+    for candidate in candidates:
+        if candidate and candidate in enabled:
+            return candidate
+    available = ", ".join(sorted(enabled))
+    raise RuntimeError(
+        f"No enabled ML-DSA signature mechanism found. Tried {candidates}. "
+        f"Enabled liboqs signatures: {available}"
+    )
+
+ML_DSA_ALGORITHM = _select_ml_dsa_algorithm()
+
+class MLDSA87:
+    """Thin liboqs-backed ML-DSA facade used by the hybrid wallet."""
+
+    algorithm = ML_DSA_ALGORITHM
+    _rng_lock = Lock()
+    _rng_callback_type = ct.CFUNCTYPE(None, ct.c_void_p, ct.c_size_t)
+    _active_rng_callback = None
+
+    with oqs.Signature(algorithm) as _sig_meta:
+        public_key_size = int(_sig_meta.length_public_key)
+        secret_key_size = int(_sig_meta.length_secret_key)
+        signature_size = int(_sig_meta.length_signature)
+
+    @staticmethod
+    def _deterministic_rng(seed: bytes):
+        stream_seed = hashlib.sha3_512(
+            b"PQC-CHAIN:ML-DSA-87:keygen:v1:" + seed
+        ).digest()
+        counter = 0
+
+        def rng(buffer, bytes_to_read):
+            nonlocal counter
+            size = int(bytes_to_read)
+            out = bytearray()
+            while len(out) < size:
+                out.extend(hashlib.sha3_512(
+                    stream_seed + counter.to_bytes(16, "big")
+                ).digest())
+                counter += 1
+            ct.memmove(buffer, bytes(out[:size]), size)
+
+        return rng
+
+    @classmethod
+    def keygen_from_seed(cls, seed: bytes) -> Tuple[bytes, bytes]:
+        with cls._rng_lock:
+            callback = cls._rng_callback_type(cls._deterministic_rng(seed))
+            cls._active_rng_callback = callback
+            oqs.native().OQS_randombytes_custom_algorithm.argtypes = [cls._rng_callback_type]
+            oqs.native().OQS_randombytes_custom_algorithm.restype = None
+            oqs.native().OQS_randombytes_switch_algorithm.argtypes = [ct.c_char_p]
+            oqs.native().OQS_randombytes_switch_algorithm.restype = ct.c_int
+            oqs.native().OQS_randombytes_custom_algorithm(callback)
+            try:
+                with oqs.Signature(cls.algorithm) as signer:
+                    public_key = signer.generate_keypair()
+                    secret_key = signer.export_secret_key()
+                    return public_key, secret_key
+            finally:
+                oqs.native().OQS_randombytes_switch_algorithm(b"system")
+                cls._active_rng_callback = None
+
+    @classmethod
+    def sign(cls, secret_key: bytes, message: bytes) -> bytes:
+        if len(secret_key) != cls.secret_key_size:
+            raise ValueError("Invalid ML-DSA secret key length.")
+        with oqs.Signature(cls.algorithm, secret_key=secret_key) as signer:
+            signature = signer.sign(message)
+        if len(signature) != cls.signature_size:
+            raise ValueError("Unexpected ML-DSA signature length.")
+        return signature
+
+    @classmethod
+    def verify(cls, public_key: bytes, message: bytes, signature: bytes) -> bool:
+        if len(public_key) != cls.public_key_size:
+            return False
+        if len(signature) != cls.signature_size:
+            return False
+        with oqs.Signature(cls.algorithm) as verifier:
+            return verifier.verify(message, signature, public_key)
 
 class EncryptedStorage:
     def __init__(self, db_key: str, storage_dir: str = "blockchain_data"):
@@ -105,6 +211,25 @@ class EncryptedStorage:
         chacha = ChaCha20Poly1305(self.key)
         return chacha.decrypt(nonce, ciphertext, None)
 
+    def save_bytes(self, filename: str, data: bytes):
+        try:
+            encrypted_data = self._encrypt_data(data)
+            with open(os.path.join(self.storage_dir, filename), 'wb') as f:
+                f.write(encrypted_data)
+        except Exception as e:
+            logger.error(f"Failed to save bytes to {filename}: {e}")
+
+    def load_bytes(self, filename: str) -> bytes:
+        filepath = os.path.join(self.storage_dir, filename)
+        if not os.path.exists(filepath): return b""
+        try:
+            with open(filepath, 'rb') as f:
+                encrypted_data = f.read()
+            return self._decrypt_data(encrypted_data)
+        except Exception as e:
+            logger.error(f"Failed to load bytes from {filename}: {e}")
+            return b""
+
     def save_data(self, filename: str, data: dict):
         try:
             compressed_data = zstd.compress(json.dumps(data).encode())
@@ -133,6 +258,7 @@ class Configuration:
         self.port = int(os.getenv('PORT', 8000))
         self.db_key = os.getenv('DB_KEY')
         self.storage_dir = os.getenv('STORAGE_DIR', f'blockchain_data_{self.port}')
+        self.chain_id = os.getenv(CHAIN_ID_ENV, DEFAULT_CHAIN_ID)
 
     def load_yaml(self):
         config_changed = False
@@ -144,16 +270,24 @@ class Configuration:
                 config = yaml.safe_load(f) or {}
                 self.node = os.getenv('INITIAL_NODE') or config.get('node', self.node)
                 self.port = int(os.getenv('PORT')) if os.getenv('PORT') else config.get('port', self.port)
+                self.chain_id = os.getenv(CHAIN_ID_ENV) or config.get('chain_id', self.chain_id)
                 if not self.db_key: self.db_key = config.get('db_key')
+                if 'chain_id' not in config:
+                    config_changed = True
         
         if not self.db_key or len(self.db_key.encode()) < 128:
             self.db_key = os.urandom(96).hex()
             os.environ['DB_KEY'] = self.db_key
             config_changed = True
 
+        self.chain_id = self.chain_id.strip()
+        if not self.chain_id:
+            raise ValueError(f"{CHAIN_ID_ENV}/chain_id must not be empty.")
+        os.environ[CHAIN_ID_ENV] = self.chain_id
+
         if config_changed or not os.path.exists(self.config_path):
             with open(self.config_path, 'w') as f:
-                yaml.safe_dump({'node': self.node, 'port': self.port, 'db_key': self.db_key}, f)
+                yaml.safe_dump({'node': self.node, 'port': self.port, 'db_key': self.db_key, 'chain_id': self.chain_id}, f)
 
 class Wallet:
     def __init__(self, ml_pk: bytes, ed_pk: bytes, stored_key: bytes, address: str, salt: bytes, password_hash: bytes, ml_sk_raw: bytes = None, ed_sk_raw=None):
@@ -169,9 +303,7 @@ class Wallet:
         
     @staticmethod
     def _generate_keys_from_seed(seed_bytes: bytes) -> tuple:
-        dilithium_seed = hashlib.sha3_512(seed_bytes).digest()[:48]
-        Dilithium5.set_drbg_seed(dilithium_seed)
-        ml_pk, ml_sk = Dilithium5.keygen()
+        ml_pk, ml_sk = MLDSA87.keygen_from_seed(seed_bytes)
         ed_sk = ed25519.Ed25519PrivateKey.from_private_bytes(seed_bytes)
         ed_pk = ed_sk.public_key().public_bytes(
             encoding=serialization.Encoding.Raw,
@@ -225,7 +357,7 @@ class Wallet:
 
     @staticmethod
     async def load(address: str, password: str, storage: EncryptedStorage) -> Optional['Wallet']:
-        wallets_data = storage.load_data("wallets.json")
+        wallets_data = load_wallet_data(storage)
         wallet_data = next((w for w in wallets_data.get("wallets", []) if w['address'] == address), None)
         if not wallet_data: return None
 
@@ -249,18 +381,26 @@ class Wallet:
 
     def sign(self, message: bytes) -> bytes:
         if not self.ml_sk_raw or not self.ed_sk_raw: raise ValueError("Private key not loaded in memory.")
-        ml_sig = Dilithium5.sign(self.ml_sk_raw, message)
+        ml_sig = MLDSA87.sign(self.ml_sk_raw, message)
         ed_sig = self.ed_sk_raw.sign(message)
         return len(ml_sig).to_bytes(4, 'big') + ml_sig + ed_sig
 
     @staticmethod
     def verify_signature(ml_pk: bytes, ed_pk: bytes, message: bytes, signature: bytes) -> bool:
         try:
+            if len(ml_pk) != MLDSA87.public_key_size or len(ed_pk) != ED25519_PUBLIC_KEY_SIZE:
+                return False
+            if len(signature) != 4 + MLDSA87.signature_size + ED25519_SIGNATURE_SIZE:
+                return False
             ml_len = int.from_bytes(signature[:4], 'big')
+            if ml_len != MLDSA87.signature_size:
+                return False
             ml_sig = signature[4:4+ml_len]
             ed_sig = signature[4+ml_len:]
             
-            if not Dilithium5.verify(ml_pk, message, ml_sig): return False
+            if len(ed_sig) != ED25519_SIGNATURE_SIZE:
+                return False
+            if not MLDSA87.verify(ml_pk, message, ml_sig): return False
             ed_pub = ed25519.Ed25519PublicKey.from_public_bytes(ed_pk)
             ed_pub.verify(ed_sig, message)
             return True
@@ -289,12 +429,17 @@ class Transaction:
         self.inputs = inputs
         self.outputs = outputs
         self.is_coinbase = is_coinbase
-        self.timestamp = timestamp or time.time()
+        self.timestamp = time.time() if timestamp is None else timestamp
         self.fee = 0
         self.tx_id = tx_id or self.compute_hash()
 
     def compute_hash(self) -> str:
         data = bytearray()
+        chain_id_b = get_chain_id_bytes()
+        data.extend(struct.pack('>I', len(TX_HASH_DOMAIN)))
+        data.extend(TX_HASH_DOMAIN)
+        data.extend(struct.pack('>I', len(chain_id_b)))
+        data.extend(chain_id_b)
         data.extend(struct.pack('?', self.is_coinbase))
         data.extend(struct.pack('>d', self.timestamp))
         for txin in self.inputs:
@@ -308,6 +453,19 @@ class Transaction:
             data.extend(struct.pack('>I', len(addr_b)))
             data.extend(addr_b)
         return compute_sha3_512(bytes(data))
+
+    def has_valid_id(self) -> bool:
+        return self.tx_id == self.compute_hash()
+
+    def has_valid_outputs(self) -> bool:
+        if not self.outputs:
+            return False
+        for txout in self.outputs:
+            if type(txout.amount) is not int or txout.amount <= 0 or txout.amount > MAX_SUPPLY:
+                return False
+            if not ADDRESS_RE.fullmatch(txout.address):
+                return False
+        return True
 
     def to_dict(self):
         return {
@@ -327,7 +485,7 @@ class Block:
         self.transactions = transactions
         self.previous_hash = previous_hash
         self.difficulty = difficulty
-        self.timestamp = timestamp or time.time()
+        self.timestamp = time.time() if timestamp is None else timestamp
         self.nonce = nonce
         self.merkle_root = merkle_root or self.compute_merkle_root()
         self.hash = hash or self.compute_hash()
@@ -520,24 +678,36 @@ class Blockchain:
         return available, pending, validating
 
     def is_valid_transaction(self, tx: Transaction) -> bool:
+        if not tx.has_valid_id() or not tx.has_valid_outputs():
+            return False
         if tx.is_coinbase: return True
+        if not tx.inputs:
+            return False
         input_sum = 0
+        seen_inputs = set()
         
         
         futures = []
         with ProcessPoolExecutor() as executor:
             for txin in tx.inputs:
+                outpoint = f"{txin.tx_id}:{txin.out_idx}"
+                if outpoint in seen_inputs:
+                    return False
+                seen_inputs.add(outpoint)
                 utxo = self.get_utxo(txin.tx_id, txin.out_idx)
                 if not utxo: return False
                 input_sum += utxo.amount
                 
                 pub_keys = txin.pub_key.split(':')
                 if len(pub_keys) != 2: return False
-                ml_pk = bytes.fromhex(pub_keys[0])
-                ed_pk = bytes.fromhex(pub_keys[1])
+                try:
+                    ml_pk = bytes.fromhex(pub_keys[0])
+                    ed_pk = bytes.fromhex(pub_keys[1])
+                    sig_bytes = bytes.fromhex(txin.signature)
+                except ValueError:
+                    return False
                 
                 if compute_sha3_512(ml_pk + ed_pk) != utxo.address: return False
-                sig_bytes = bytes.fromhex(txin.signature)
                 
                 futures.append(executor.submit(verify_tx_signature_worker, ml_pk, ed_pk, tx.tx_id.encode(), sig_bytes))
                 
@@ -551,6 +721,12 @@ class Blockchain:
         return True
 
     def create_transaction(self, sender_wallet: Wallet, receiver_address: str, amount: int, fee: int = 0, req_conf: int = 10) -> Optional[Transaction]:
+        if type(amount) is not int or type(fee) is not int or amount <= 0 or fee < 0:
+            logger.error("Invalid amount or fee.")
+            return None
+        if not ADDRESS_RE.fullmatch(receiver_address):
+            logger.error("Invalid receiver address.")
+            return None
         mempool_used = set()
         for t in self.mempool:
             for txin in t.inputs:
@@ -595,6 +771,7 @@ class Blockchain:
         return tx
 
     def add_to_mempool(self, tx: Transaction):
+        if not self.is_valid_transaction(tx): return
         if tx.tx_id in [t.tx_id for t in self.mempool]: return
         self.mempool.append(tx)
         self.mempool.sort(key=lambda t: getattr(t, 'fee', 0), reverse=True)
@@ -626,6 +803,8 @@ class Blockchain:
             if not prev_block: 
                 logger.warning(f"Orphan block received at index {block.index}. Missing parent.")
                 return False
+            if block.index != prev_block.index + 1:
+                return False
                 
             if block.previous_hash != self.latest_hash:
                 if block.index <= self.height:
@@ -636,32 +815,60 @@ class Blockchain:
                     # Implementing a full UTXO rollback is complex. For now, we accept it as the new main chain.
                     logger.warning(f"CHAIN REORG DETECTED! Fork is longer ({block.index} > {self.height}).")
                     is_main_chain = True
-                    
+
+            if block.merkle_root != block.compute_merkle_root():
+                return False
+            if block.hash != block.compute_hash():
+                return False
             target = (1 << 512) - 1 >> block.difficulty
             if int(block.hash, 16) > target: return False
+            if not block.transactions or not block.transactions[0].is_coinbase:
+                return False
+            if any(tx.is_coinbase for tx in block.transactions[1:]):
+                return False
 
         if len(json.dumps(block.to_dict()).encode()) > MAX_BLOCK_BYTES: return False
 
         # Verify all block transactions with multiprocessing
         futures = []
+        total_fees = 0
+        spent_inputs = set()
         with ProcessPoolExecutor() as executor:
             for tx in block.transactions:
+                if block.index > 0 and (not tx.has_valid_id() or not tx.has_valid_outputs()):
+                    return False
                 if tx.is_coinbase: continue
+                if not tx.inputs:
+                    return False
                 input_sum = 0
                 for txin in tx.inputs:
+                    outpoint = f"{txin.tx_id}:{txin.out_idx}"
+                    if outpoint in spent_inputs:
+                        return False
+                    spent_inputs.add(outpoint)
                     utxo = self.get_utxo(txin.tx_id, txin.out_idx)
                     if not utxo: return False
                     input_sum += utxo.amount
                     pub_keys = txin.pub_key.split(':')
                     if len(pub_keys) != 2: return False
-                    ml_pk, ed_pk = bytes.fromhex(pub_keys[0]), bytes.fromhex(pub_keys[1])
+                    try:
+                        ml_pk, ed_pk = bytes.fromhex(pub_keys[0]), bytes.fromhex(pub_keys[1])
+                        sig_bytes = bytes.fromhex(txin.signature)
+                    except ValueError:
+                        return False
                     if compute_sha3_512(ml_pk + ed_pk) != utxo.address: return False
-                    sig_bytes = bytes.fromhex(txin.signature)
                     futures.append(executor.submit(verify_tx_signature_worker, ml_pk, ed_pk, tx.tx_id.encode(), sig_bytes))
                 output_sum = sum(out.amount for out in tx.outputs)
                 if input_sum < output_sum: return False
+                total_fees += input_sum - output_sum
                 
             if any(not f.result() for f in futures):
+                return False
+
+        if block.index > 0:
+            coinbase_sum = sum(out.amount for out in block.transactions[0].outputs)
+            expected_reward = self.get_reward(block.index, block.previous_hash, block.difficulty)
+            if coinbase_sum > expected_reward + total_fees:
                 return False
 
         # Apply state changes
@@ -741,9 +948,9 @@ class Blockchain:
         if node not in self.peers and node != self.own_address and node not in self.banned_peers:
             self.peers.add(node)
             ts = time.time()
-            msg = f"{self.own_address}:{ts}".encode()
+            msg = f"{self.own_address}:{get_chain_id()}:{ts}".encode()
             sig = self.node_key.sign(msg)
-            handshake = {"peer": self.own_address, "pub_key": self.node_pub_hex, "signature": sig.hex(), "timestamp": ts}
+            handshake = {"peer": self.own_address, "pub_key": self.node_pub_hex, "signature": sig.hex(), "timestamp": ts, "chain_id": get_chain_id()}
             payload = b'\x03' + json.dumps(handshake).encode()
             await self._send_to_peer(node, payload)
 
@@ -785,11 +992,14 @@ class Blockchain:
                     data = json.loads(payload.decode())
                     req_peer = data.get("peer")
                     if req_peer in self.banned_peers: continue
+                    if data.get("chain_id") != get_chain_id():
+                        self.banned_peers.add(req_peer)
+                        continue
                     pub_hex, sig_hex, ts = data.get("pub_key"), data.get("signature"), data.get("timestamp")
                     if abs(time.time() - ts) > 60: continue
                     try:
                         ed_pub = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub_hex))
-                        ed_pub.verify(bytes.fromhex(sig_hex), f"{req_peer}:{ts}".encode())
+                        ed_pub.verify(bytes.fromhex(sig_hex), f"{req_peer}:{data.get('chain_id')}:{ts}".encode())
                         if req_peer and req_peer != self.own_address:
                             self.peers.add(req_peer)
                     except Exception:
@@ -894,7 +1104,7 @@ async def start_server(host: str, port: int, blockchain: Blockchain):
 async def interactive_loop(blockchain: Blockchain, storage: EncryptedStorage, config: Configuration):
     active_wallet = None
     print("\n[+] PQC Node Started")
-    if not os.path.exists(os.path.join(storage.storage_dir, "wallets.json")):
+    if not wallet_store_exists(storage):
         while True:
             print("\nDo you want to:")
             print("1. Create a new wallet")
@@ -903,21 +1113,21 @@ async def interactive_loop(blockchain: Blockchain, storage: EncryptedStorage, co
             if choice == '1':
                 pwd = await async_prompt("Enter new password (min 12 chars)", hide_input=False, confirmation_prompt=True)
                 active_wallet, words = Wallet.create_new(pwd)
-                storage.save_data("wallets.json", {"wallets": [{"address": active_wallet.address, "public_key": active_wallet.public_key_hex, "private_key": active_wallet.stored_key.hex(), "salt": active_wallet.salt.hex(), "password_hash": active_wallet.password_hash.hex()}]})
-                print(f"\n[!] SAVE THESE 12 WORDS: {words}")
+                save_wallet_data(storage, {"wallets": [{"address": active_wallet.address, "public_key": active_wallet.public_key_hex, "private_key": active_wallet.stored_key.hex(), "salt": active_wallet.salt.hex(), "password_hash": active_wallet.password_hash.hex()}]})
+                print(f"\n[!] SAVE THESE 24 WORDS: {words}")
                 print(f"[!] Address: {active_wallet.address}\n")
                 break
             elif choice == '2':
-                words = await async_input("Enter 12-word seed: ")
+                words = await async_input("Enter 12/24-word seed: ")
                 pwd = await async_prompt("Enter new password for local storage", hide_input=False)
                 try:
                     active_wallet = Wallet.import_from_seed(words.strip(), pwd)
-                    storage.save_data("wallets.json", {"wallets": [{"address": active_wallet.address, "public_key": active_wallet.public_key_hex, "private_key": active_wallet.stored_key.hex(), "salt": active_wallet.salt.hex(), "password_hash": active_wallet.password_hash.hex()}]})
+                    save_wallet_data(storage, {"wallets": [{"address": active_wallet.address, "public_key": active_wallet.public_key_hex, "private_key": active_wallet.stored_key.hex(), "salt": active_wallet.salt.hex(), "password_hash": active_wallet.password_hash.hex()}]})
                     print(f"Wallet imported: {active_wallet.address}")
                     break
                 except Exception as e: print(f"Error: {e}")
     else:
-        wallets_data = storage.load_data("wallets.json")
+        wallets_data = load_wallet_data(storage)
         if wallets_data.get("wallets"):
             addr = wallets_data["wallets"][0]["address"]
             pwd = await async_prompt(f"Enter password to unlock wallet {addr[:8]}...", hide_input=False)
