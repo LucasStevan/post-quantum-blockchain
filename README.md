@@ -1,183 +1,251 @@
-<div align="center">
-  <h1> Blockchain Post-Quantum Chain </h1>
-  <p>Uma Prova de Conceito (PoC) 100% em Python de uma rede descentralizada resistente a ataques de computação quântica.</p>
-</div>
+# Blockchain Post-Quantum Chain
 
+PQC-CHAIN é uma prova de conceito de blockchain em Python com assinaturas híbridas pós-quânticas. O projeto usa `ML-DSA-87` via liboqs, combinado com `Ed25519`, e valida transações com regra AND: uma transação só é aceita quando as duas assinaturas verificam sobre o mesmo `tx_id`.
 
-<details>
-  <summary><b>Índice</b></summary>
-  <ul>
-    <li><a href="#-sobre-o-projeto">Sobre o Projeto</a></li>
-    <li><a href="#-segurança-e-criptografia">Segurança e Criptografia</a></li>
-    <li><a href="#-iniciando-com-dev-container">Iniciando com Dev Container</a></li>
-    <li><a href="#-executando-um-nó-único">Executando um Nó Único</a></li>
-    <li><a href="#-configurando-uma-rede-multi-nó">Configurando uma Rede Multi-nó</a></li>
-    <li><a href="#-verificando-a-sincronização">Verificando a Sincronização</a></li>
-    <li><a href="#-avisos-importantes">Avisos Importantes</a></li>
-  </ul>
-</details>
+O ambiente recomendado é o Dev Container. Ele compila liboqs de forma reproduzível, instala as dependências Python e evita o uso de implementações educacionais como `dilithium-py`.
 
----
+## Estado De Segurança
 
-## <span id="-sobre-o-projeto" style="color:#2E86C1;">Sobre o Projeto</span>
+| Área | Implementação atual |
+|---|---|
+| Assinaturas | `ML-DSA-87` + `Ed25519` com combiner AND |
+| ML-DSA | liboqs nativo + `liboqs-python` |
+| Replay protection | `PQC_CHAIN_ID` entra no `tx_id` assinado |
+| Hash de transação | Domínio `PQC-CHAIN:TX:v2` + `chain_id` + campos canônicos |
+| Wallet store | `wallets.bin`, envelope binário versionado, criptografado e sem compressão |
+| Wallet legado | `wallets.json` ainda é lido e migrado para `wallets.bin` |
+| Armazenamento local | ChaCha20-Poly1305 com chave derivada por HKDF |
+| Senhas locais | Argon2id |
+| P2P | WebSocket sobre TLS 1.3 |
+| Dev Container | `python:3.11-bookworm`, liboqs `0.14.0`, `liboqs-python==0.14.1` |
 
-O **PQC-CHAIN** é uma implementação de blockchain pós-quântica hiper-segura baseada em assinaturas híbridas `ML-DSA-87` (FIPS 204, via liboqs) + `Ed25519` com verificação AND.
+Relatórios técnicos:
 
-Este projeto foi desenhado para rodar em Dev Container: o ambiente compila e instala liboqs de forma reproduzível, evitando a implementação educacional `dilithium-py`. Toda a segurança, certificados TLS e chaves são gerados automaticamente!
+- [readme-issue.md](readme-issue.md): correções das issues de segurança, modelo de ameaças e runbook.
+- [encoding-migration.md](encoding-migration.md): mudança do wallet store e plano seguro para Protobuf.
 
----
+## Modelo De Ligações Da Rede
 
-## <span id="-segurança-e-criptografia" style="color:#2E86C1;">Segurança e Criptografia</span>
+Visão em plaintext, no estilo de um workflow visual, para comparar o desenho anterior com o desenho atual.
 
-A agressividade da segurança implementada no PQC-CHAIN inclui:
+### Antes Das Correções
 
-<table style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
-  <tr style="background-color: #E8F8F5;">
-    <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Componente</th>
-    <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Tecnologia / Algoritmo</th>
-    <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Descrição</th>
-  </tr>
-  <tr>
-    <td style="padding: 10px; border: 1px solid #ddd;"><b>Assinaturas</b></td>
-    <td style="padding: 10px; border: 1px solid #ddd;"><code>ML-DSA-87</code> + <code>Ed25519</code></td>
-    <td style="padding: 10px; border: 1px solid #ddd;">Combiner híbrido com verificação AND: a transação só é válida se a assinatura pós-quântica e a assinatura clássica verificarem sobre o mesmo <code>tx_id</code>.</td>
-  </tr>
-  <tr>
-    <td style="padding: 10px; border: 1px solid #ddd;"><b>Armazenamento</b></td>
-    <td style="padding: 10px; border: 1px solid #ddd;"><code>ChaCha20Poly1305</code> + <code>Argon2id</code></td>
-    <td style="padding: 10px; border: 1px solid #ddd;">Bancos de dados são criptografados na raiz com custo extremo de memória (1GB no Argon2id) para evitar ataques de força bruta.</td>
-  </tr>
-  <tr>
-    <td style="padding: 10px; border: 1px solid #ddd;"><b>Rede P2P</b></td>
-    <td style="padding: 10px; border: 1px solid #ddd;"><code>TLS v1.3+</code></td>
-    <td style="padding: 10px; border: 1px solid #ddd;">Todo o tráfego P2P ocorre encriptado por padrão. Certificados auto-assinados são gerados dinamicamente na inicialização.</td>
-  </tr>
-  <tr>
-    <td style="padding: 10px; border: 1px solid #ddd;"><b>Isolamento</b></td>
-    <td style="padding: 10px; border: 1px solid #ddd;"><code>HKDF</code></td>
-    <td style="padding: 10px; border: 1px solid #ddd;">A chave-mestra usa HKDF para derivar as chaves, blindando dados em disco (blocos, transações, carteiras).</td>
-  </tr>
-</table>
+```plaintext
+[Wallet / Seed]
+      |
+      v
+[dilithium-py Dilithium5]
+      |
+      v
+[Assinatura ML educacional]
+      |
+      +-----------------------------+
+      |                             |
+      v                             v
+[Ed25519]                    [tx_id sem chain_id]
+      |                             |
+      +-------------+---------------+
+                    |
+                    v
+        [Assinatura hibrida AND]
+                    |
+                    v
+        [Transaction JSON + zstd]
+                    |
+                    v
+        [P2P WebSocket / TLS]
+                    |
+        +-----------+-----------+
+        |                       |
+        v                       v
+[Rede A / Mainnet]      [Rede B / Fork/Testnet]
+        |                       |
+        +-----------+-----------+
+                    |
+                    v
+       [Risco: replay cross-network]
 
----
+[wallets.json]
+      |
+      v
+[hex strings + JSON + zstd + AEAD]
+```
 
-## <span id="-iniciando-com-dev-container" style="color:#2E86C1;">1. Iniciar com Dev Container (Recomendado)</span>
+### Depois Das Correções
 
-**Objetivo**: Rodar a blockchain em um ambiente Linux totalmente isolado, padronizado e pronto para uso, sem precisar poluir a máquina local com instalações de bibliotecas Python.
+```plaintext
+[Wallet / Seed]
+      |
+      v
+[MLDSA87 facade]
+      |
+      v
+[liboqs ML-DSA-87]
+      |
+      +-----------------------------+
+      |                             |
+      v                             v
+[Ed25519]        [TX_HASH_DOMAIN + PQC_CHAIN_ID + campos da tx]
+      |                             |
+      +-------------+---------------+
+                    |
+                    v
+        [tx_id v2 com domain separation]
+                    |
+                    v
+        [Assinatura hibrida AND]
+                    |
+                    v
+        [Validacao de tamanhos + verify ML-DSA + verify Ed25519]
+                    |
+                    v
+        [Transaction JSON + zstd - transporte legado compativel]
+                    |
+                    v
+        [P2P WebSocket / TLS 1.3]
+                    |
+                    v
+        [Handshake assina chain_id]
+                    |
+        +-----------+-----------+
+        |                       |
+        v                       v
+[Rede A / Chain ID A]  [Rede B / Chain ID B]
+        |                       |
+        v                       v
+[Aceita tx A]          [Rejeita replay de tx A]
 
-<div style="background-color:#F4F6F6; padding:15px; border-radius:8px; border-left: 5px solid #3498DB;">
-  <h3 style="margin-top: 0;">🛠️ Passo-a-passo:</h3>
-  <ol>
-    <li>Certifique-se de ter o <a href="https://www.docker.com/products/docker-desktop/" target="_blank">Docker Desktop</a> e o <a href="https://code.visualstudio.com/" target="_blank">VS Code</a> instalados em seu computador.</li>
-    <li>No VS Code, instale a extensão <strong>Dev Containers</strong> (desenvolvida pela Microsoft).</li>
-    <li>Abra a pasta raiz deste projeto no VS Code.</li>
-    <li>Um alerta aparecerá no canto inferior direito: <em>"Folder contains a Dev Container configuration file. Reopen folder to develop in a container."</em> Clique em <strong>Reopen in Container</strong>.</li>
-    <li>Aguarde a construção. O VS Code preparará a imagem e instalará todas as dependências (<code>pip install -r requirements.txt</code>) automaticamente.</li>
-  </ol>
-</div>
+[wallets.bin]
+      |
+      v
+[Envelope binario versionado + AEAD sem compressao]
+      |
+      v
+[wallets.json legado ainda legivel e migrado com rollback seguro]
+```
 
----
+## Por Que Não Protobuf Agora?
 
-## <span id="-executando-um-nó-único" style="color:#2E86C1;">2. Executar a Blockchain (Nó Único)</span>
+Protobuf é uma boa direção para P2P e storage, mas não foi aplicado diretamente no consenso porque isso seria uma migração de protocolo. O formato atual de rede ainda é JSON+zstd para compatibilidade entre nós. O hash de transação usa encoder manual com `struct`, e qualquer migração de consenso precisa de canonicalização, versionamento e vetores de teste.
 
-**Objetivo**: Iniciar o nó interativo e criar o Gênesis da sua rede.
+O que foi aplicado agora é local e compatível: carteiras novas usam `wallets.bin`; carteiras antigas em `wallets.json` continuam legíveis.
 
-<div style="background-color:#F4F6F6; padding:15px; border-radius:8px; border-left: 5px solid #2ECC71;">
-  <h3 style="margin-top: 0;"> Comando (No terminal dentro do Container):</h3>
-  <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px; font-family: 'Courier New', Courier, monospace;"><code>python Quantum.py</code></pre>
-  
-  <h3> O que acontece na primeira execução?</h3>
-  <ul>
-    <li>O sistema detecta que não há arquivos de configuração.</li>
-    <li>Gera automaticamente um arquivo <code>config.yaml</code> com uma <code>db_key</code> hipersecreta (128 bytes reais de entropia).</li>
-    <li>Cria e salva certificados SSL auto-assinados (<code>cert.pem</code> e <code>key.pem</code>) para que outras conexões sejam seguras.</li>
-    <li>Inicia o banco criptografado com Argon2 (processo requer cerca de 1GB de RAM momentânea).</li>
-  </ul>
-</div>
+## Rodar Com Dev Container
 
----
+Pré-requisitos:
 
-## <span id="-configurando-uma-rede-multi-nó" style="color:#2E86C1;">3. Configurando uma Rede Multi-nó</span>
+- Docker Desktop
+- VS Code
+- Extensão Dev Containers
 
-Para simular uma rede descentralizada completa localmente, você pode instanciar vários nós em portas diferentes.
+Passos:
 
-> ** IMPORTANTE - Isolamento de Diretórios:** 
-> Se rodar múltiplos nós na mesma pasta raiz, eles causarão conflito de banco de dados (bloqueio de arquivo) e usarão a mesma chave/certificados. Para simular múltiplos nós corretamente, **você deve criar pastas separadas para cada nó** (ex: <code>node0/</code>, <code>node1/</code>, <code>node2/</code>), copiar os arquivos Python (ou o repositório) para elas, e rodar o <code>Quantum.py</code> separadamente dentro de cada diretório.
+1. Abra a raiz deste repositório no VS Code.
+2. Execute `Dev Containers: Rebuild Container Without Cache` na primeira vez após as mudanças de imagem.
+3. Aguarde o build. O Dockerfile compila liboqs e instala as dependências.
+4. No terminal do container, rode:
 
-### A. Nó Inicial (Semente/Ponto de Entrada) - Porta 8004
-Este será o nó principal ao qual os outros se conectarão para baixar o histórico inicial.
-
-<div style="background-color:#F4F6F6; padding:15px; border-radius:8px; margin-bottom: 15px;">
-  <p><strong>Terminal 0 (Dentro da pasta do Nó 0)</strong></p>
-  <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px;"><code># No Windows PowerShell:
-$env:PORT="8004"
+```bash
 python Quantum.py
+```
 
-# No Linux/Mac/DevContainer:
-export PORT=8004
-python Quantum.py</code></pre>
-</div>
+O primeiro start cria `blockchain_data_<PORT>/config.yaml`, certificados TLS locais, banco RocksDB local e wallet store quando a carteira for criada/importada.
 
-### B. Nó Adicional 1 - Porta 8001
-Configurar o nó atual na porta 8001 para se sincronizar automaticamente com o nó inicial em 8004.
+Se o log de build ainda mostrar `mcr.microsoft.com/devcontainers/python:1-3.11-bullseye`, o VS Code está usando configuração antiga ou log antigo. O log correto deve citar `docker.io/library/python:3.11-bookworm`.
 
-<div style="background-color:#F4F6F6; padding:15px; border-radius:8px; margin-bottom: 15px;">
-  <p><strong>Terminal 1 (Dentro da pasta do Nó 1)</strong></p>
-  <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px;"><code># No Windows PowerShell:
-$env:INITIAL_NODE="127.0.0.1:8004"
-$env:PORT="8001"
+## Rodar Um Nó Local
+
+```bash
+export PQC_CHAIN_ID="pqc-chain-mainnet-2026-ml-dsa-87-v2"
+export PORT=8000
 python Quantum.py
+```
 
-# No Linux/Mac/DevContainer:
-export INITIAL_NODE="127.0.0.1:8004"
+No PowerShell:
+
+```powershell
+$env:PQC_CHAIN_ID="pqc-chain-mainnet-2026-ml-dsa-87-v2"
+$env:PORT="8000"
+python Quantum.py
+```
+
+## Rodar Múltiplos Nós Locais
+
+Use o mesmo `PQC_CHAIN_ID` para nós da mesma rede.
+
+Nó inicial:
+
+```bash
+export PQC_CHAIN_ID="pqc-chain-mainnet-2026-ml-dsa-87-v2"
+export PORT=8000
+python Quantum.py
+```
+
+Segundo nó:
+
+```bash
+export PQC_CHAIN_ID="pqc-chain-mainnet-2026-ml-dsa-87-v2"
+export INITIAL_NODE="127.0.0.1:8000"
 export PORT=8001
-python Quantum.py</code></pre>
-</div>
-
-### C. Nó Adicional 2 - Porta 8002
-Da mesma forma, podemos adicionar um terceiro nó.
-
-<div style="background-color:#F4F6F6; padding:15px; border-radius:8px; margin-bottom: 15px;">
-  <p><strong>Terminal 2 (Dentro da pasta do Nó 2)</strong></p>
-  <pre style="background-color:#2C3E50; color:#ECF0F1; padding:15px; border-radius:5px;"><code># No Windows PowerShell:
-$env:INITIAL_NODE="127.0.0.1:8004"
-$env:PORT="8002"
 python Quantum.py
+```
 
-# No Linux/Mac/DevContainer:
-export INITIAL_NODE="127.0.0.1:8004"
+Terceiro nó:
+
+```bash
+export PQC_CHAIN_ID="pqc-chain-mainnet-2026-ml-dsa-87-v2"
+export INITIAL_NODE="127.0.0.1:8000"
 export PORT=8002
-python Quantum.py</code></pre>
-</div>
+python Quantum.py
+```
 
----
+Cada nó deve usar `STORAGE_DIR` próprio ou rodar em diretórios separados. Dois nós não devem compartilhar o mesmo `blockchain_data_<PORT>`.
 
-## <span id="-verificando-a-sincronização" style="color:#2E86C1;">4. Verificando a Sincronização e P2P</span>
+## Testes E Verificações
 
-Depois de iniciar a rede, você pode interligar os nós mutuamente para formar uma malha (mesh) mais resiliente.
+Dentro do Dev Container:
 
-<div style="background-color:#FEF9E7; padding:15px; border-radius:8px; border-left: 5px solid #F1C40F;">
-  <h3 style="margin-top: 0;"> Passos de Verificação:</h3>
-  <ol>
-    <li>No <b>Terminal 1</b> (nó 8001), selecione a opção <strong>8 ("Add peer")</strong> no menu interativo do console e adicione o IP: <code>127.0.0.1:8002</code>.</li>
-    <li>No <b>Terminal 2</b> (nó 8002), use a mesma opção <strong>8</strong> para adicionar <code>127.0.0.1:8001</code>.</li>
-    <li>Em qualquer nó, acesse a opção <strong>7 ("Network status")</strong>. Você verá a lista de peers conhecidos e as conexões ativas.</li>
-    <li>O status do <code>Initial node</code> deve constar como <code>OK</code> e as conexões P2P devem mostrar tráfego seguro.</li>
-  </ol>
-</div>
+```bash
+python -m py_compile Quantum.py wallet_store.py generate_genesis.py
+python -m unittest discover -s tests
+python -c "import oqs; assert 'ML-DSA-87' in oqs.get_enabled_sig_mechanisms(); print(oqs.oqs_version())"
+```
 
----
+## Arquivos Locais Que Não Devem Ser Commitados
 
-## <span id="-avisos-importantes" style="color:#2E86C1;">5. Avisos Importantes</span>
+O `.gitignore` bloqueia dados gerados e sensíveis:
 
-- **Portas em Uso**: Antes de iniciar, certifique-se de que as portas `8001`, `8002`, `8004` (e `8000` se usada como padrão sem definição de porta) não estejam sendo ocupadas por outras aplicações.
-- **Backups da Chave de DB**: Se perder o arquivo `config.yaml` ou a `db_key`, os dados locais da blockchain (blocos salvos localmente e a carteira) serão permanentemente inacessíveis. A criptografia é **inquebrável**.
-- **Consumo de Memória**: Por design, o Argon2 consome ~1GB de RAM por breves momentos durante a decodificação da chave do banco. Isso garante resistência a ASICs e força bruta em caso de vazamento físico do arquivo do banco.
-- **Replay Protection**: transações v2 incluem `PQC_CHAIN_ID` no `tx_id`. Redes, forks e testnets devem usar identificadores diferentes.
-- **Modelo de Ameaças**: veja `readme-issue.md` para as correções das issues 1-3, comandos de execução e limites de segurança.
+- `blockchain_data*/`
+- `__pycache__/`
+- caches de teste/ferramentas
+- ambientes virtuais
 
----
+`blockchain_data*/` pode conter `wallets.bin`, `wallets.json`, `config.yaml`, `db_key`, certificados e RocksDB. Não publique esses arquivos.
 
-<div align="center" style="margin-top: 40px; color: #7F8C8D;">
-  <i>Construído para a era da computação quântica. Desenvolvido com Python.</i>
-</div>
+## Replay Protection
+
+Transações v2 incluem `PQC_CHAIN_ID` no `tx_id`. Use identificadores diferentes para redes diferentes:
+
+```bash
+export PQC_CHAIN_ID="pqc-chain-mainnet-2026-ml-dsa-87-v2"
+export PQC_CHAIN_ID="pqc-chain-testnet-2026-ml-dsa-87-v2"
+export PQC_CHAIN_ID="pqc-chain-lab-fork-2026-05-15"
+```
+
+Se duas redes usam o mesmo `PQC_CHAIN_ID`, elas estão intencionalmente no mesmo domínio de assinatura.
+
+## Limites Da PoC
+
+Esta é uma PoC técnica, não uma mainnet pronta para custodiar valor real. O projeto não promete proteção contra host comprometido, malware local, engenharia social, supply chain maliciosa ou side-channel absoluto em hardware compartilhado. O modelo de ameaças completo está em [readme-issue.md](readme-issue.md).
+
+## Estrutura Principal
+
+| Caminho | Função |
+|---|---|
+| `Quantum.py` | Nó, wallet, transações, blocos, P2P e explorer API |
+| `wallet_store.py` | Envelope binário versionado para carteiras locais |
+| `.devcontainer/` | Build reproduzível com liboqs |
+| `tests/` | Regressões de segurança e wallet store |
+| `explorer/` | Interface web simples do explorer |
+| `readme-issue.md` | Relatório técnico das issues corrigidas |
+| `encoding-migration.md` | Decisões sobre wallet encoding e Protobuf |
