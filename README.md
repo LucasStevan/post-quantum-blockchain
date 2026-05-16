@@ -16,13 +16,37 @@ O ambiente recomendado é o Dev Container. Ele compila liboqs de forma reproduz�
 | Wallet legado | `wallets.json` ainda é lido e migrado para `wallets.bin` |
 | Armazenamento local | ChaCha20-Poly1305 com chave derivada por HKDF |
 | Senhas locais | Argon2id |
-| P2P | WebSocket sobre TLS 1.3 |
-| Dev Container | `python:3.11-bookworm`, liboqs `0.14.0`, `liboqs-python==0.14.1` |
+| Consenso | Fork-choice por trabalho acumulado, orphan pool e reorg por replay de UTXO |
+| P2P | WebSocket sobre TLS 1.3, identidade persistente de nó, ban score e limites de payload |
+| Pruning | Configurável por `ARCHIVE_NODE` e `PRUNE_DEPTH` |
+| Dev Container | `python:3.11-bookworm`, liboqs `0.15.0`, `liboqs-python==0.15.0` |
 
 Relatórios técnicos:
 
 - [readme-issue.md](readme-issue.md): correções das issues de segurança, modelo de ameaças e runbook.
 - [encoding-migration.md](encoding-migration.md): mudança do wallet store e plano seguro para Protobuf.
+- [docs/protocol-v2.md](docs/protocol-v2.md): regras normativas do protocolo v2.
+- [docs/global-operations.md](docs/global-operations.md): trilha de devnet para testnet pública.
+- [docs/release-security.md](docs/release-security.md): gates de supply chain, release e auditoria.
+- [docs/home-test.md](docs/home-test.md): passo a passo para rodar em casa, entender domínios e usar bootnodes.
+- [docs/bootnode-dns-vps-guide.md](docs/bootnode-dns-vps-guide.md): guia didático para configurar domínio, DNS, VPS e bootnode.
+- [docs/complete-testnet-mainnet-runbook.md](docs/complete-testnet-mainnet-runbook.md): runbook completo para testnet, usuários comuns, bootnodes e caminho para mainnet.
+
+## Uso Sem Linha De Comando
+
+No Windows, para a experiência mais simples durante os testes:
+
+```text
+run_pqc_node.bat
+```
+
+O launcher mostra um menu:
+
+- Public testnet wallet/node: conecta em modo outbound-only, sem abrir porta no roteador.
+- Local devnet: roda uma rede local.
+- Public bootnode/archive node: modo operador, para VPS/domínio público.
+
+Perfis ficam em `networks/*.yaml`, então usuários comuns não precisam editar código nem exportar variáveis.
 
 ## Modelo De Ligações Da Rede
 
@@ -181,13 +205,41 @@ python Quantum.py
 
 Cada nó deve usar `STORAGE_DIR` próprio ou rodar em diretórios separados. Dois nós não devem compartilhar o mesmo `blockchain_data_<PORT>`.
 
+## Rodar Bootnodes Públicos De Testnet
+
+Para nós expostos na internet, configure identidade pública, bootnodes e TLS estrito:
+
+```bash
+export PQC_CHAIN_ID="pqc-chain-public-testnet-2026-ml-dsa-87-v2"
+export PUBLIC_HOST="node1.example.org"
+export BOOTNODES="boot1.example.org:8000,boot2.example.org:8000"
+export ARCHIVE_NODE=1
+export PRUNE_DEPTH=0
+export PQC_STRICT_TLS=1
+export PQC_TLS_CA_FILE="/etc/pqc-chain/ca.pem"
+python Quantum.py
+```
+
+O modo TLS sem verificação continua disponível para devnet local com certificados autoassinados, mas não deve ser usado para redes públicas.
+
+Usuários comuns devem usar modo outbound-only:
+
+```bash
+python Quantum.py --network public-testnet --role user --connect-only
+```
+
+Esse modo sincroniza a partir de bootnodes sem exigir IP público, port forwarding ou configuração de roteador.
+
 ## Testes E Verificações
 
 Dentro do Dev Container:
 
 ```bash
 python -m py_compile Quantum.py wallet_store.py generate_genesis.py
+python tools/verify_requirements_pinned.py
 python -m unittest discover -s tests
+python tools/verify_vectors.py
+python tools/wire_fuzz.py
 python -c "import oqs; assert 'ML-DSA-87' in oqs.get_enabled_sig_mechanisms(); print(oqs.oqs_version())"
 ```
 
@@ -225,7 +277,11 @@ Esta é uma PoC técnica, não uma mainnet pronta para custodiar valor real. O p
 | `Quantum.py` | Nó, wallet, transações, blocos, P2P e explorer API |
 | `wallet_store.py` | Envelope binário versionado para carteiras locais |
 | `.devcontainer/` | Build reproduzível com liboqs |
+| `networks/` | Perfis de rede, bootnodes e DNS seeds |
 | `tests/` | Regressões de segurança e wallet store |
+| `test_vectors/` | Vetores imutáveis do protocolo v2 |
+| `tools/` | Verificação de vetores e fuzz smoke de wire payload |
+| `docs/` | Especificação, operação global e release security |
 | `explorer/` | Interface web simples do explorer |
 | `readme-issue.md` | Relatório técnico das issues corrigidas |
 | `encoding-migration.md` | Decisões sobre wallet encoding e Protobuf |
