@@ -1,0 +1,8 @@
+{
+  "protocol_version": 2,
+  "chain_id": "pqc-chain-mainnet-2026-ml-dsa-87-v2",
+  "tx_hash_domain": "PQC-CHAIN:TX:v2",
+  "genesis_hash": "04d0a6dcd5ec2218b8180b9a456158f79abaa4fe731772e8dd3c2ae7fdba4f5ae71a7947f62d6471ab7cf67d76e3c81c5148df231b662424eae3a99d7c433fcb",
+  "genesis_merkle_root": "43e04dcf531e13709658b276550c5eb7276e5f203d884fbadccede8c438f60af827c389c8b2711d5563784fcd2b778e6178df94de46f64116303fa66a8cdb40b",
+  "genesis_coinbase_tx_id": "43e04dcf531e13709658b276550c5eb7276e5f203d884fbadccede8c438f60af827c389c8b2711d5563784fcd2b778e6178df94de46f64116303fa66a8cdb40b"
+}
