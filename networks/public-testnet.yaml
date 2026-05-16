@@ -1,0 +1,14 @@
+name: public-testnet
+description: Public testnet profile for normal users. Runs outbound-only by default.
+chain_id: pqc-chain-mainnet-2026-ml-dsa-87-v2
+port: 8000
+storage_dir: blockchain_data_public_testnet
+initial_node: ""
+bootnodes:
+  - bloxchain.duckdns.org:8000
+dns_seeds:
+  - bloxchain.duckdns.org:8000
+connect_only: true
+archive_node: false
+prune_depth: 1000
+strict_tls: false

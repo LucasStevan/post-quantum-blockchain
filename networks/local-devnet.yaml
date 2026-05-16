@@ -1,0 +1,12 @@
+name: local-devnet
+description: Local single-machine or LAN devnet profile.
+chain_id: pqc-chain-mainnet-2026-ml-dsa-87-v2
+port: 8000
+storage_dir: blockchain_data_local
+initial_node: ""
+bootnodes: []
+dns_seeds: []
+connect_only: false
+archive_node: true
+prune_depth: 0
+strict_tls: false
